@@ -2,13 +2,15 @@ package utils
 
 import (
 	"bytes"
-	"github.com/hardcore-os/corekv/utils/codec"
 	"math/rand"
 	"sync"
+
+	"github.com/hardcore-os/corekv/utils/codec"
 )
 
 const (
 	defaultMaxHeight = 48
+	p                = 0.25
 )
 
 type SkipList struct {
@@ -44,7 +46,7 @@ type Element struct {
 
 func newElement(score float64, entry *codec.Entry, level int) *Element {
 	return &Element{
-		levels: make([]*Element, level + 1),
+		levels: make([]*Element, level+1),
 		entry:  entry,
 		score:  score,
 	}
@@ -55,26 +57,25 @@ func (elem *Element) Entry() *codec.Entry {
 }
 
 func (list *SkipList) Add(data *codec.Entry) error {
-	//implement me here!!!
 	list.lock.Lock()
 	defer list.lock.Unlock()
 
-	prevs := make([]*Element, list.maxLevel + 1)
-
-	key := data.Key
-	keyScore := list.calcScore(key)
+	keyScore := list.calcScore(data.Key)
 	header, maxLevel := list.header, list.maxLevel
+
+	prevs := make([]*Element, maxLevel+1)
 	prev := header
-	for i := maxLevel; i >= 0; i -- {
-		for ne := prev.levels[i]; ne != nil; ne = prev.levels[i] {
-			if comp := list.compare(keyScore, key, ne); comp <= 0 {
+	// 寻找插入位置
+	for i := maxLevel; i >= 0; i-- {
+		for node := prev.levels[i]; node != nil; node = prev.levels[i] {
+			if comp := list.compare(keyScore, data.Key, node); comp <= 0 {
+				// key相等，更新对应值
 				if comp == 0 {
-					// 更新数据
-					ne.entry = data
+					node.score = keyScore
+					node.entry = data
 					return nil
-				} else {
-					prev = ne
 				}
+				prev = node
 			} else {
 				break
 			}
@@ -82,38 +83,38 @@ func (list *SkipList) Add(data *codec.Entry) error {
 		prevs[i] = prev
 	}
 
-	randLevel, keyScore := list.randLevel(), list.calcScore(key)
-	e := newElement(keyScore, data, randLevel)
+	level := list.randLevel()
+	node := newElement(keyScore, data, level)
 
-	for i := randLevel; i >= 0; i -- {
-		ne := prevs[i].levels[i]
-		prevs[i].levels[i] = e
-		e.levels[i] = ne
+	for i := level; i >= 0; i-- {
+		node.levels[i] = prevs[i].levels[i]
+		prevs[i].levels[i] = node
 	}
+	list.size += 1
 	return nil
 }
 
 func (list *SkipList) Search(key []byte) (e *codec.Entry) {
-	//implement me here!!!
-
 	list.lock.RLock()
 	defer list.lock.RUnlock()
+
 	keyScore := list.calcScore(key)
 	header, maxLevel := list.header, list.maxLevel
+
 	prev := header
-	for i := maxLevel; i >= 0; i -- {
-		for ne := prev.levels[i]; ne != nil; ne = prev.levels[i] {
-			if comp := list.compare(keyScore, key, ne); comp <= 0 {
+	for i := maxLevel; i >= 0; i-- {
+		for node := prev.levels[i]; node != nil; node = prev.levels[i] {
+			if comp := list.compare(keyScore, key, node); comp <= 0 {
 				if comp == 0 {
-					return ne.entry
-				} else {
-					prev = ne
+					return node.entry
 				}
+				prev = node
 			} else {
 				break
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -139,34 +140,23 @@ func (list *SkipList) calcScore(key []byte) (score float64) {
 }
 
 func (list *SkipList) compare(score float64, key []byte, next *Element) int {
-	//implement me here!!!
-	if score == next.score {
-		return bytes.Compare(key, next.entry.Key)
-
-	}
 	if score < next.score {
 		return -1
-	} else {
+	} else if score > next.score {
 		return 1
+	} else {
+		return bytes.Compare(key, next.entry.Key)
 	}
 }
 
 func (list *SkipList) randLevel() int {
-	//implement me here!!!
-	// 有 1/2 的几率返回 1
-	// 有 1/4 的几率返回 2
-	// 有 1/8 的几率返回 3
-	// 直到最大层
-	for i := 0; i < list.maxLevel; i ++ {
-		if list.rand.Intn(2) == 0 {
-			return i
-		}
+	level := 1
+	for ; list.rand.Float32() < p && level < list.maxLevel; level++ {
 	}
 
-	return list.maxLevel
+	return level
 }
 
 func (list *SkipList) Size() int64 {
-	//implement me here!!!
 	return list.size
 }
