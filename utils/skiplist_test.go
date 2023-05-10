@@ -16,6 +16,7 @@ package utils
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 
@@ -129,6 +130,18 @@ func Benchmark_ConcurrentBasic(b *testing.B) {
 	wg.Wait()
 }
 
+type entryList []*Entry
+
+func (l entryList) Len() int { return len(l) }
+
+func (l entryList) Less(i, j int) bool {
+	return CompareKeys(l[i].Key, l[j].Key) < 0
+}
+
+func (l entryList) Swap(i, j int) {
+	l[i], l[j] = l[j], l[i]
+}
+
 func TestSkipListIterator(t *testing.T) {
 	list := NewSkiplist(100000)
 
@@ -146,7 +159,30 @@ func TestSkipListIterator(t *testing.T) {
 	list.Add(entry2_new)
 	assert.Equal(t, entry2_new.Value, list.Search(entry2_new.Key).Value)
 
+	entrys := entryList{entry1, entry2, entry2_new}
+	sort.Sort(entrys)
+
 	iter := list.NewSkipListIterator()
+	iter.Rewind()
+	assert.True(t, iter.Valid())
+	assert.Equal(t, iter.Item().Entry().Key, entrys[0].Key)
+	assert.Equal(t, iter.Item().Entry().Value, entrys[0].Value)
+
+	iter.Seek(entrys[1].Key)
+	assert.True(t, iter.Valid())
+	assert.Equal(t, iter.Item().Entry().Key, entrys[1].Key)
+	assert.Equal(t, iter.Item().Entry().Value, entrys[1].Value)
+
+	iter.Next()
+	assert.True(t, iter.Valid())
+	assert.Equal(t, iter.Item().Entry().Key, entrys[2].Key)
+	assert.Equal(t, iter.Item().Entry().Value, entrys[2].Value)
+
+	iter.Next()
+	assert.False(t, iter.Valid())
+	assert.Equal(t, iter.Item().Entry().Key, []byte(nil))
+	assert.Equal(t, iter.Item().Entry().Value, []byte(nil))
+
 	for iter.Rewind(); iter.Valid(); iter.Next() {
 		fmt.Printf("iter key %s, value %s", iter.Item().Entry().Key, iter.Item().Entry().Value)
 	}
