@@ -1,10 +1,11 @@
 package utils
 
 import (
-	"github.com/pkg/errors"
 	"log"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/pkg/errors"
 )
 
 type Arena struct {
@@ -29,66 +30,53 @@ func (s *Arena) allocate(sz uint32) uint32 {
 	//implement me here！！！
 	// 在 arena 中分配指定大小的内存空间
 	offset := atomic.AddUint32(&s.n, sz)
-	buflen := len(s.buf)
-	//如果剩下的空间 不足以分配给下一个
-	if buflen-int(offset) < MaxNodeSize {
-		groupby := uint32(len(s.buf))
-		if groupby < 1<<30 {
-			groupby = 1 << 30
+	// 空间不够了，需要扩容
+	// 按当前空间的double 扩容， 不能超过32位能表示的最大值
+	if offset > uint32(len(s.buf)) {
+		grow := uint32(len(s.buf))
+
+		if grow > 1<<30 {
+			grow = 1 << 30
 		}
 
-		if groupby < sz {
-			groupby = sz
+		if grow < sz {
+			grow = sz
 		}
 
-		newbuf := make([]byte, uint32(len(s.buf))+groupby)
-		AssertTrue(len(s.buf) == copy(newbuf, s.buf))
-		s.buf = newbuf
+		buf := make([]byte, uint32(len(s.buf))+grow)
+		AssertTrue(copy(buf, s.buf) == len(s.buf))
+		s.buf = buf
 	}
-
 	return offset - sz
 }
 
-//在arena里开辟一块空间，用以存放sl中的节点
-//返回值为在arena中的offset
+// 在arena里开辟一块空间，用以存放sl中的节点
+// 返回值为在arena中的offset
 func (s *Arena) putNode(height int) uint32 {
 	//implement me here！！！
-	// 这里的 node 要保存 value 、key 和 next 指针值
-	// 所以要计算清楚需要申请多大的内存空间
+	unused := (defaultMaxLevel - height) * offsetSize
 
-	// levels 里面需要的大小
-	unusedsize := (defaultMaxLevel - height) * offsetSize
+	space := uint32(MaxNodeSize-unused) + uint32(nodeAlign)
 
-	l := uint32(MaxNodeSize - unusedsize + nodeAlign)
+	offset := s.allocate(space)
 
-	n := s.allocate(uint32(l))
-	//内存对齐
-	m := (n + uint32(nodeAlign)) & ^uint32(nodeAlign)
-	return m
+	alignedOffset := (offset + uint32(nodeAlign)) & ^uint32(nodeAlign)
+	return alignedOffset
 }
 
 func (s *Arena) putVal(v ValueStruct) uint32 {
 	//implement me here！！！
-	//将 Value 值存储到 arena 当中
-	// 并且将指针返回，返回的指针值应被存储在 Node 节点中
-
-	offset := s.allocate(v.EncodedSize())
-	v.EncodeValue(s.buf[offset:])
-
+	sz := v.EncodedSize()
+	offset := s.allocate(sz)
+	v.EncodeValue(s.buf[offset : offset+sz])
 	return offset
 }
 
 func (s *Arena) putKey(key []byte) uint32 {
 	//implement me here！！！
-	//将  Key 值存储到 arena 当中
-	// 并且将指针返回，返回的指针值应被存储在 Node 节点中
-
-	l := len(key)
-	offset := s.allocate(uint32(l))
-
-	bufset := s.buf[offset : offset+uint32(l)]
-
-	AssertTrue(l == copy(bufset, key))
+	sz := len(key)
+	offset := s.allocate(uint32(sz))
+	copy(s.buf[offset:offset+uint32(sz)], key)
 	return offset
 }
 
@@ -109,22 +97,15 @@ func (s *Arena) getVal(offset uint32, size uint32) (v ValueStruct) {
 	return
 }
 
-//用element在内存中的地址 - arena首字节的内存地址，得到在arena中的偏移量
+// 用element在内存中的地址 - arena首字节的内存地址，得到在arena中的偏移量
 func (s *Arena) getElementOffset(nd *Element) uint32 {
 	//implement me here！！！
-	//获取某个节点，在 arena 当中的偏移量
-	if nd == nil {
-		return 0
-	}
-
 	return uint32(uintptr(unsafe.Pointer(nd)) - uintptr(unsafe.Pointer(&s.buf[0])))
-
 }
 
 func (e *Element) getNextOffset(h int) uint32 {
 	//implement me here！！！
-	// 这个方法用来计算节点在h 层数下的 next 节点
-	return atomic.LoadUint32(&e.levels[h])
+	return e.levels[h]
 }
 
 func (s *Arena) Size() int64 {
