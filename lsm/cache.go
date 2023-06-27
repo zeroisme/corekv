@@ -20,9 +20,6 @@ type cache struct {
 	indexs *utils.CoreMap // key fid， value table
 	blocks *utils.CoreMap // key fid_blockOffset  value block []byte
 }
-type blockBuffer struct {
-	b []byte
-}
 
 // close
 func (c *cache) close() error {

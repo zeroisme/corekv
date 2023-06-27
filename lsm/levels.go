@@ -61,7 +61,7 @@ func (lh *levelHandler) Sort() {
 func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
 	var version uint64
 	for _, table := range lh.tables {
-		if entry, err := table.Serach(key, &version); err == nil {
+		if entry, err := table.Search(key, &version); err == nil {
 			return entry, nil
 		}
 	}
@@ -73,7 +73,7 @@ func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
 	if table == nil {
 		return nil, utils.ErrKeyNotFound
 	}
-	if entry, err := table.Serach(key, &version); err == nil {
+	if entry, err := table.Search(key, &version); err == nil {
 		return entry, nil
 	}
 	return nil, utils.ErrKeyNotFound
@@ -174,11 +174,31 @@ func (lm *levelManager) build() error {
 	lm.maxFid = maxFid
 	// 逐一加载sstable 的index block 构建cache
 	lm.loadCache()
+	SetFID(uint32(maxFid))
 	return nil
 }
 
 // 向L0层flush一个sstable
-func (lm *levelManager) flush(immutable *memTable) error {
+func (lm *levelManager) flush(immutable *memTable) (err error) {
 	// TODO LAB
-	return nil
+	fid := GetNextFID()
+	sstName := utils.FileNameSSTable(lm.opt.WorkDir, uint64(fid))
+
+	builder := newTableBuilder(lm.opt)
+	iter := immutable.sl.NewSkipListIterator()
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		entry := iter.Item().Entry()
+		builder.add(entry)
+	}
+
+	table := openTable(lm, sstName, builder)
+	err = lm.manifestFile.AddTableMeta(0, &file.TableMeta{
+		ID:       uint64(fid),
+		Checksum: []byte{'m', 'o', 'c', 'k'},
+	})
+	utils.Panic(err)
+
+	lm.levels[0].add(table)
+
+	return
 }
