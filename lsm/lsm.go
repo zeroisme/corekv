@@ -14,7 +14,7 @@ type LSM struct {
 	maxMemFID  uint32
 }
 
-//Options _
+// Options _
 type Options struct {
 	WorkDir      string
 	MemTableSize int64

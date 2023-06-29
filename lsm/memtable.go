@@ -17,8 +17,10 @@ package lsm
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync/atomic"
 
 	"github.com/hardcore-os/corekv/file"
@@ -83,10 +85,28 @@ func (m *memTable) Size() int64 {
 	return m.sl.Size()
 }
 
-//recovery
+// recovery
 func (lsm *LSM) recovery() (*memTable, []*memTable) {
 	// LAB Recvery
-	return lsm.NewMemtable(), nil
+	// 1. 找到所有的wal文件并从小到大排序
+	files, err := ioutil.ReadDir(lsm.option.WorkDir)
+	utils.Panic(err)
+	var walFileList []string
+	for _, f := range files {
+		if filepath.Ext(f.Name()) == walFileExt {
+			walFileList = append(walFileList, f.Name())
+			lsm.maxMemFID++
+		}
+	}
+	sort.Strings(walFileList)
+	// 2. 从小到大依次打开wal文件，将wal文件中的数据写入到memtable中
+	var memTableList []*memTable
+	for _, walFile := range walFileList {
+		mt, err := lsm.openMemTable(uint32(file.FID(walFile)))
+		utils.Panic(err)
+		memTableList = append(memTableList, mt)
+	}
+	return lsm.NewMemtable(), memTableList
 }
 
 func (lsm *LSM) openMemTable(fid uint32) (*memTable, error) {
